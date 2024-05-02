@@ -17,6 +17,8 @@ namespace EasyCurlNet
 
         public String Url { get; set; } = String.Empty;
         public NameValueCollection Headers { get; set; } = new NameValueCollection();
+
+        public CURLcode CURLcode { get; private set; }
         public EasyHttp() 
         {
             mGlobal = CurlNative.Init();
@@ -42,41 +44,51 @@ namespace EasyCurlNet
             var easy = CurlNative.Easy.Init();
 
             var dataCopier = new DataCallbackCopier();
-
-            CurlNative.Easy.SetOpt(easy, CURLoption.URL, UrlCombine(Url, path));
-            CurlNative.Easy.SetOpt(easy, CURLoption.WRITEFUNCTION, dataCopier.DataHandler);
+            CURLcode debugStatus = CURLcode.OK;
+            debugStatus = CurlNative.Easy.SetOpt(easy, CURLoption.URL, UrlCombine(Url, path));
+            debugStatus = CurlNative.Easy.SetOpt(easy, CURLoption.WRITEFUNCTION, dataCopier.DataHandler);
 
             //add headers
             SafeSlistHandle headers = CurlNative.Slist.Append(SafeSlistHandle.Null, "User-Agent: EasyCurlNet/1.0 (Windows)"); 
             foreach (var header in Headers)
                 CurlNative.Slist.Append(headers, $"{header}: {Headers[(String)header]}");
 
-            CurlNative.Easy.SetOpt(easy, CURLoption.HTTPHEADER, headers.DangerousGetHandle());
-            CurlNative.Easy.SetOpt(easy, CURLoption.CUSTOMREQUEST, httpMethod.ToString().ToUpper());
+            debugStatus = CurlNative.Easy.SetOpt(easy, CURLoption.HTTPHEADER, headers.DangerousGetHandle());
+            debugStatus = CurlNative.Easy.SetOpt(easy, CURLoption.CUSTOMREQUEST, httpMethod.ToString().ToUpper());
 
             if (!String.IsNullOrEmpty(body))
-                CurlNative.Easy.SetOpt(easy, CURLoption.COPYPOSTFIELDS, body);
+                debugStatus =CurlNative.Easy.SetOpt(easy, CURLoption.COPYPOSTFIELDS, body);
 
             //CurlNative.Easy.SetOpt(easy, CURLoption.SSL_CIPHER_LIST, "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256");
             //CurlNative.Easy.SetOpt(easy, CURLoption.SSLVERSION, 6);
-            //string caCertPath = "curl-ca-bundle.crt"; 
-            //CurlNative.Easy.SetOpt(easy, CURLoption.CAINFO, caCertPath);
-
+            string caCertPath = "curl-ca-bundle.crt";
+            //debugStatus = CurlNative.Easy.SetOpt(easy, CURLoption.CAINFO, caCertPath);
+            
+            var tempPath = Path.GetTempPath();
+            var fullPath = Path.Combine(tempPath, "curl-ca-bundle.crt");
             var strpem = ReadCertificate();
-            var blob = new CurlNative.Easy.CurlBlob()
-            {
-                data = Marshal.StringToHGlobalAnsi(strpem),
-                len = (UIntPtr)strpem.Length,
-                flags = 1,
-            };
-            CurlNative.Easy.SetOpt(easy, CURLoption.CURLOPT_CAINFO_BLOB, blob);
+            System.IO.File.WriteAllText(fullPath, strpem);
+
+            debugStatus = CurlNative.Easy.SetOpt(easy, CURLoption.CAINFO, fullPath);
+            // not work for 32 bits applications 
+            //var blob = new CurlNative.Easy.CurlBlob()
+            //{
+                ////data = Marshal.StringToHGlobalAnsi(strpem + '\0'),
+                //data = Marshal.StringToCoTaskMemAnsi(strpem + '\0'),
+                ////data = strpem + '\0',
+                //len = (uint)strpem.Length + 1,
+                //flags = 1,
+            //};
+            //debugStatus = CurlNative.Easy.SetOpt(easy, CURLoption.CURLOPT_CAINFO_BLOB, blob);
 
             var result = CurlNative.Easy.Perform(easy);
+
+            CURLcode = result;
 
             var resposta = Encoding.UTF8.GetString(dataCopier.Stream.ToArray());
 
             CurlNative.Slist.FreeAll(headers);
-            Marshal.FreeHGlobal(blob.data);
+            //Marshal.FreeHGlobal(blob.data);
             easy.Dispose();
             if (mGlobal == CURLcode.OK)
             {
